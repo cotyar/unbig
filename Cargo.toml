@@ -1,0 +1,22 @@
+[package]
+name = "simulator"
+version = "0.1.0"
+authors = ["cotyar <khabarov@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+stopwatch = "0.0.7"
+rayon = "1.5.0"
+crossbeam = "0.8.0"
+timely = "*"
+self-meter = "0.6.0"
+serde = { version = "1.0", features = ["derive"] }
+# black_scholes = "0.5"
+
+time-test= "0.2.2"
+num-traits= "0.2.14"
+wide= "0.6.4"
+bytemuck = "^1"
+black_scholes_pricer = { git = "https://github.com/ronniec95/black_scholes" }
