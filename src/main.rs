@@ -3,20 +3,29 @@
 #![feature(slice_as_chunks)]
 #![warn(unused_must_use)]
 #![warn(dead_code)]
+#[allow(unused_imports)]
+#[allow(unused_variables)]
 
 // extern crate test;
 extern crate stopwatch;
+extern crate derive_more;
+use derive_more::{Display};
+extern crate derive_new;
+use derive_new::new;
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use stopwatch::Stopwatch;
 use wide::*;
 
+#[allow(unused_imports)]
+#[allow(unused_variables)]
 use rayon::{prelude::*, ThreadPool};
 use std::sync::Arc;
 use std::thread;
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(new, Copy, Clone, Debug, Display, Serialize, Deserialize)]
+#[display(fmt = "(spot: {}, strike: {}, ir: {}, mat: {}, vol: {})", spot, strike, ir, maturity, volatility)]
 struct CalcParams {
     spot: f32,
     strike: f32,
@@ -25,26 +34,31 @@ struct CalcParams {
     volatility: f32,
 }
 
-type ScenarioId = u16;
+#[derive(new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize)]
+struct ScenarioId(u16);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, new)]
 struct Scenario<const LENGTH: usize> {
     scenario_id: ScenarioId,
     calc_params: [CalcParams; LENGTH],
 }
 
-impl<const LENGTH: usize> Scenario<LENGTH> {
-    pub fn new(scenario_id: ScenarioId, calc_params: [CalcParams; LENGTH]) -> Self {
-        Self { scenario_id, calc_params }
-    }
-}
+// impl<const LENGTH: usize> Scenario<LENGTH> {
+//     pub fn new(scenario_id: ScenarioId, calc_params: [CalcParams; LENGTH]) -> Self {
+//         Self { scenario_id, calc_params }
+//     }
+// }
 
-type BucketId = String;
+#[derive(new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize)]
+struct BucketId(&'static str);
 
-type InstrumentId = u16;
-type Day = u16;
+#[derive(new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize)]
+struct InstrumentId(u16);
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize)]
+struct Day(u16);
+
+#[derive(new, Copy, Clone, Debug, Display, Serialize, Deserialize)]
 enum Bump {
     Benchmark,
     AddBumpIdx(f32),
@@ -90,7 +104,7 @@ impl Ord for Bump {
     }
 }
 
-#[derive(Hash, Copy, Clone, Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(new, Hash, Copy, Clone, Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
 struct DataPointKey {
     // bucket: BucketId
     instrument: InstrumentId,
@@ -99,7 +113,7 @@ struct DataPointKey {
     point: Bump,
 }
 
-#[derive(Clone, Debug)]
+#[derive(new, Clone, Debug)]
 struct ScenarioPlan<const LENGTH: usize> {
     instruments: Vec<InstrumentId>,
     days: Vec<Day>,
@@ -114,20 +128,20 @@ impl<const LENGTH: usize> ScenarioPlan<LENGTH> {
         days_count: u16,
     ) -> Self {
         Self {
-            instruments: (0..instrument_count).collect::<Vec<_>>(),
-            days: (0..days_count).collect::<Vec<_>>(),
+            instruments: (0..instrument_count).map(InstrumentId::new).collect::<Vec<_>>(),
+            days: (0..days_count).map(Day::new).collect::<Vec<_>>(),
             scenario: Scenario::new(scenario_id, calc_params),
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(new, Clone, Debug)]
 struct ScenarioSurface<const LENGTH: usize> {
     plan: ScenarioPlan<LENGTH>,
     surface: BTreeMap<DataPointKey, Vec<f32>>,
 }
 
-pub fn generate_liniar_vector(initial_value: f32, bump: f32, count: u16) -> Vec<f32> {
+pub fn generate_linear_vector(initial_value: f32, bump: f32, count: u16) -> Vec<f32> {
     let mut acc = initial_value;
     (0..count)
         .map(|_| {
@@ -138,6 +152,11 @@ pub fn generate_liniar_vector(initial_value: f32, bump: f32, count: u16) -> Vec<
 }
 
 pub fn generate_calc_params<const LENGTH: usize>() {}
+
+
+
+///////////////////////
+
 
 pub fn count_64(input: Vec<f64>) -> f64 {
     input.iter().fold(0., |acc, e| (acc + e / 2.))
@@ -197,6 +216,8 @@ pub fn count_vectorized_par_groups(input: &[f32]) -> f32 {
 
 mod thread_pool {
     use crossbeam::channel::{unbounded, Receiver, Sender};
+    #[allow(unused_imports)]
+    #[allow(unused_variables)]
     use std::{
         sync::{Arc, Mutex},
         thread::{self, JoinHandle},
@@ -280,8 +301,6 @@ pub fn count_vectorized_par_threads1(input: Vec<f32>) -> f32 {
     // let chunk_size = input.len() / 8;
     println!("Boo1");
 
-    let v = vec![1., 2., 3.];
-
     // let mut threads = Vec::<JoinHandle<()>>::new();
     //
     // let handle = thread::spawn(move || {
@@ -296,7 +315,7 @@ pub fn count_vectorized_par_threads1(input: Vec<f32>) -> f32 {
     for i in 0..1 {
         let vals = Arc::clone(&vals1);
         threads.push(thread::spawn(move || {
-            let count = count_vectorized(&vals[vals.len() / 8 * i..vals.len() / 8 * (i + 1)]);
+            let _count = count_vectorized(&vals[vals.len() / 8 * i..vals.len() / 8 * (i + 1)]);
             // println!("Here's a count: {:?}", count);
         }));
     }
@@ -347,6 +366,7 @@ extern crate time_test;
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use num_traits::{AsPrimitive, Num};
     use std::mem::size_of;
 
@@ -374,23 +394,26 @@ mod tests {
         // ScenarioPlan 
 
 
-        println!("CalcParams: {}", size_of::<CalcParams>());
-        println!("BucketId: {}", size_of::<BucketId>());
-        println!("InstrumentId: {}", size_of::<InstrumentId>());
-        println!("Day: {}", size_of::<Day>());
+        let sizeof_usize = size_of::<usize>();
 
-        println!("DataPointKey: {}", size_of::<DataPointKey>());
-        println!("Bump: {}", size_of::<Bump>());
-        println!("ScenarioId: {}", size_of::<ScenarioId>());
-        println!("Scenario<0>: {}", size_of::<Scenario<0>>());
-        println!("Scenario<1>: {}", size_of::<Scenario<1>>());
-        println!("Scenario<2>: {}", size_of::<Scenario<2>>());
-        println!("ScenarioPlan<0>: {}", size_of::<ScenarioPlan<0>>());
-        println!("ScenarioPlan<1>: {}", size_of::<ScenarioPlan<1>>());
-        println!("ScenarioPlan<2>: {}", size_of::<ScenarioPlan<2>>());
-        println!("ScenarioSurface<0>: {}", size_of::<ScenarioSurface<0>>());
-        println!("ScenarioSurface<1>: {}", size_of::<ScenarioSurface<1>>());
-        println!("ScenarioSurface<2>: {}", size_of::<ScenarioSurface<2>>());
+        println!("usize: {}", sizeof_usize);
+        println!("CalcParams: {} - {}", size_of::<CalcParams>(), size_of::<CalcParams>() % sizeof_usize == 0);
+        println!("BucketId: {} - {}", size_of::<BucketId>(), (size_of::<BucketId>() % sizeof_usize) == 0);
+        println!("InstrumentId: {} - {}", size_of::<InstrumentId>(), size_of::<InstrumentId>() % sizeof_usize == 0);
+        println!("Day: {} - {}", size_of::<Day>(), size_of::<Day>() % sizeof_usize == 0);
+
+        println!("DataPointKey: {} - {}", size_of::<DataPointKey>(), size_of::<DataPointKey>() % sizeof_usize == 0);
+        println!("Bump: {} - {}", size_of::<Bump>(), size_of::<Bump>() % sizeof_usize == 0);
+        println!("ScenarioId: {} - {}", size_of::<ScenarioId>(), size_of::<ScenarioId>() % sizeof_usize == 0);
+        println!("Scenario<0>: {} - {}", size_of::<Scenario<0>>(), size_of::<Scenario<0>>() % sizeof_usize == 0);
+        println!("Scenario<1>: {} - {}", size_of::<Scenario<1>>(), size_of::<Scenario<1>>() % sizeof_usize == 0);
+        println!("Scenario<2>: {} - {}", size_of::<Scenario<2>>(), size_of::<Scenario<2>>() % sizeof_usize == 0);
+        println!("ScenarioPlan<0>: {} - {}", size_of::<ScenarioPlan<0>>(), size_of::<ScenarioPlan<0>>() % sizeof_usize == 0);
+        println!("ScenarioPlan<1>: {} - {}", size_of::<ScenarioPlan<1>>(), size_of::<ScenarioPlan<1>>() % sizeof_usize == 0);
+        println!("ScenarioPlan<2>: {} - {}", size_of::<ScenarioPlan<2>>(), size_of::<ScenarioPlan<2>>() % sizeof_usize == 0);
+        println!("ScenarioSurface<0>: {} - {}", size_of::<ScenarioSurface<0>>(), size_of::<ScenarioSurface<0>>() % sizeof_usize == 0);
+        println!("ScenarioSurface<1>: {} - {}", size_of::<ScenarioSurface<1>>(), size_of::<ScenarioSurface<1>>() % sizeof_usize == 0);
+        println!("ScenarioSurface<2>: {} - {}", size_of::<ScenarioSurface<2>>(), size_of::<ScenarioSurface<2>>() % sizeof_usize == 0);
         
     }
 
@@ -483,7 +506,7 @@ mod tests {
                 let tx = tx.clone();
                 pool.spawn(move || {
                     let mut r = 0.0;
-                    for i in 0..20 {
+                    for _i in 0..20 {
                         r += count_vectorized(&v);
                     }
                     tx.send(r).unwrap();
@@ -507,7 +530,7 @@ mod tests {
 
         {
             time_test!("run");
-            for i in 0..8 {
+            for _i in 0..8 {
                 let tx = tx.clone();
                 pool.spawn(move || {
                     let v = generate_vec_f32(TOTAL / 4);
@@ -554,6 +577,7 @@ fn main() {
 
 extern crate timely;
 
+#[allow(unused_imports)]
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -561,7 +585,6 @@ use std::io::stderr;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use timely::dataflow::operators::{Input, Inspect};
-use timely::*;
 
 fn main1() {
     let sw = Stopwatch::start_new();
