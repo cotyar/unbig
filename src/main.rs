@@ -11,6 +11,8 @@ extern crate stopwatch;
 extern crate derive_more;
 use derive_more::{Display};
 extern crate derive_new;
+extern crate arrayvec;
+use arrayvec::ArrayString;
 use derive_new::new;
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
@@ -49,8 +51,8 @@ struct Scenario<const LENGTH: usize> {
 //     }
 // }
 
-#[derive(new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize)]
-struct BucketId(&'static str);
+#[derive(new, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize)]
+struct BucketIdL<const BUCKET_KEY_LENGTH: usize>(ArrayString<BUCKET_KEY_LENGTH>);
 
 #[derive(new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize)]
 struct InstrumentId(u16);
@@ -105,11 +107,11 @@ impl Ord for Bump {
 }
 
 #[derive(new, Hash, Copy, Clone, Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
-struct DataPointKey {
-    // bucket: BucketId
+struct DataPointKeyL<const BUCKET_KEY_LENGTH: usize> {
+    bucket: BucketIdL<BUCKET_KEY_LENGTH>,
     instrument: InstrumentId,
     day: Day,
-    // scenario: ScenarioId,
+    scenario: ScenarioId,
     point: Bump,
 }
 
@@ -136,17 +138,24 @@ impl<const LENGTH: usize> ScenarioPlan<LENGTH> {
 }
 
 #[derive(new, Clone, Debug)]
-struct ScenarioSurface<const LENGTH: usize> {
+struct ScenarioSurfaceL<const LENGTH: usize, const BUCKET_KEY_LENGTH: usize> {
     plan: ScenarioPlan<LENGTH>,
-    surface: BTreeMap<DataPointKey, Vec<f32>>,
+    surface: BTreeMap<DataPointKeyL<BUCKET_KEY_LENGTH>, Vec<f32>>,
 }
+
+const BUCKET_KEY_LENGTH: usize = 4;
+
+type BucketId = BucketIdL<BUCKET_KEY_LENGTH>;
+type DataPointKey = DataPointKeyL<BUCKET_KEY_LENGTH>;
+type ScenarioSurface<const LENGTH: usize> = ScenarioSurfaceL<LENGTH, BUCKET_KEY_LENGTH>;
+
+
 
 pub fn generate_linear_vector(initial_value: f32, bump: f32, count: u16) -> Vec<f32> {
     let mut acc = initial_value;
     (0..count)
         .map(|_| {
-            acc += bump;
-            acc
+            acc += bump
         })
         .collect::<Vec<_>>()
 }
