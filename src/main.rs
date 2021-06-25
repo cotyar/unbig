@@ -3,16 +3,15 @@
 #![feature(slice_as_chunks)]
 #![warn(unused_must_use)]
 #![warn(dead_code)]
+extern crate derive_more;
 #[allow(unused_imports)]
 #[allow(unused_variables)]
-
 // extern crate test;
 extern crate stopwatch;
-extern crate derive_more;
-use derive_more::{Display};
-extern crate derive_new;
+use derive_more::Display;
 extern crate arrayvec;
-use arrayvec::ArrayString;
+extern crate derive_new;
+use arrayvec::{ArrayString, ArrayVec};
 use derive_new::new;
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
@@ -27,8 +26,15 @@ use std::sync::Arc;
 use std::thread;
 
 #[derive(new, Copy, Clone, Debug, Display, Serialize, Deserialize)]
-#[display(fmt = "(spot: {}, strike: {}, ir: {}, mat: {}, vol: {})", spot, strike, ir, maturity, volatility)]
-struct CalcParams {
+#[display(
+    fmt = "(spot: {}, strike: {}, ir: {}, mat: {}, vol: {})",
+    spot,
+    strike,
+    ir,
+    maturity,
+    volatility
+)]
+pub struct CalcParams {
     spot: f32,
     strike: f32,
     ir: f32,
@@ -36,7 +42,9 @@ struct CalcParams {
     volatility: f32,
 }
 
-#[derive(new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(
+    new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize,
+)]
 struct ScenarioId(u16);
 
 #[derive(Clone, Debug, new)]
@@ -54,10 +62,14 @@ struct Scenario<const LENGTH: usize> {
 #[derive(new, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize)]
 struct BucketIdL<const BUCKET_KEY_LENGTH: usize>(ArrayString<BUCKET_KEY_LENGTH>);
 
-#[derive(new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(
+    new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize,
+)]
 struct InstrumentId(u16);
 
-#[derive(new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(
+    new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize,
+)]
 struct Day(u16);
 
 #[derive(new, Copy, Clone, Debug, Display, Serialize, Deserialize)]
@@ -130,7 +142,9 @@ impl<const LENGTH: usize> ScenarioPlan<LENGTH> {
         days_count: u16,
     ) -> Self {
         Self {
-            instruments: (0..instrument_count).map(InstrumentId::new).collect::<Vec<_>>(),
+            instruments: (0..instrument_count)
+                .map(InstrumentId::new)
+                .collect::<Vec<_>>(),
             days: (0..days_count).map(Day::new).collect::<Vec<_>>(),
             scenario: Scenario::new(scenario_id, calc_params),
         }
@@ -149,23 +163,30 @@ type BucketId = BucketIdL<BUCKET_KEY_LENGTH>;
 type DataPointKey = DataPointKeyL<BUCKET_KEY_LENGTH>;
 type ScenarioSurface<const LENGTH: usize> = ScenarioSurfaceL<LENGTH, BUCKET_KEY_LENGTH>;
 
-
-
 pub fn generate_linear_vector(initial_value: f32, bump: f32, count: u16) -> Vec<f32> {
     let mut acc = initial_value;
     (0..count)
         .map(|_| {
-            acc += bump
+            acc += bump;
+            acc
         })
         .collect::<Vec<_>>()
 }
 
-pub fn generate_calc_params<const LENGTH: usize>() {}
-
-
+pub fn generate_calc_params<const LENGTH: usize>(
+    // count: usize,
+    spot: &dyn Fn(u32) -> f32,
+    strike: &dyn Fn(u32) -> f32,
+    ir: &dyn Fn(u32) -> f32,
+    maturity: &dyn Fn(u32) -> f32,
+    volatility: &dyn Fn(u32) -> f32,
+) -> ArrayVec<CalcParams, LENGTH> {
+    (0u32..LENGTH as u32)
+        .map(|i| CalcParams::new(spot(i), strike(i), ir(i), maturity(i), volatility(i)))
+        .collect::<ArrayVec<_, LENGTH>>()
+}
 
 ///////////////////////
-
 
 pub fn count_64(input: Vec<f64>) -> f64 {
     input.iter().fold(0., |acc, e| (acc + e / 2.))
@@ -392,6 +413,14 @@ mod tests {
     const TOTAL: usize = 1_000_000_000;
 
     #[test]
+    fn generate() {
+        let f = |i| (i as f32) * 0.1;
+        let params = generate_calc_params::<16>(&f, &f, &f, &f, &f);
+
+        println!("{:?}", params);
+    }
+
+    #[test]
     fn sizes() {
         // CalcParams
         // BucketId
@@ -400,30 +429,92 @@ mod tests {
         // Day
 
         //  DataPointKey
-        // ScenarioPlan 
-
+        // ScenarioPlan
 
         let sizeof_usize = size_of::<usize>();
 
         println!("usize: {}", sizeof_usize);
-        println!("CalcParams: {} - {}", size_of::<CalcParams>(), size_of::<CalcParams>() % sizeof_usize == 0);
-        println!("BucketId: {} - {}", size_of::<BucketId>(), (size_of::<BucketId>() % sizeof_usize) == 0);
-        println!("InstrumentId: {} - {}", size_of::<InstrumentId>(), size_of::<InstrumentId>() % sizeof_usize == 0);
-        println!("Day: {} - {}", size_of::<Day>(), size_of::<Day>() % sizeof_usize == 0);
+        println!(
+            "CalcParams: {} - {}",
+            size_of::<CalcParams>(),
+            size_of::<CalcParams>() % sizeof_usize == 0
+        );
+        println!(
+            "BucketId: {} - {}",
+            size_of::<BucketId>(),
+            (size_of::<BucketId>() % sizeof_usize) == 0
+        );
+        println!(
+            "InstrumentId: {} - {}",
+            size_of::<InstrumentId>(),
+            size_of::<InstrumentId>() % sizeof_usize == 0
+        );
+        println!(
+            "Day: {} - {}",
+            size_of::<Day>(),
+            size_of::<Day>() % sizeof_usize == 0
+        );
 
-        println!("DataPointKey: {} - {}", size_of::<DataPointKey>(), size_of::<DataPointKey>() % sizeof_usize == 0);
-        println!("Bump: {} - {}", size_of::<Bump>(), size_of::<Bump>() % sizeof_usize == 0);
-        println!("ScenarioId: {} - {}", size_of::<ScenarioId>(), size_of::<ScenarioId>() % sizeof_usize == 0);
-        println!("Scenario<0>: {} - {}", size_of::<Scenario<0>>(), size_of::<Scenario<0>>() % sizeof_usize == 0);
-        println!("Scenario<1>: {} - {}", size_of::<Scenario<1>>(), size_of::<Scenario<1>>() % sizeof_usize == 0);
-        println!("Scenario<2>: {} - {}", size_of::<Scenario<2>>(), size_of::<Scenario<2>>() % sizeof_usize == 0);
-        println!("ScenarioPlan<0>: {} - {}", size_of::<ScenarioPlan<0>>(), size_of::<ScenarioPlan<0>>() % sizeof_usize == 0);
-        println!("ScenarioPlan<1>: {} - {}", size_of::<ScenarioPlan<1>>(), size_of::<ScenarioPlan<1>>() % sizeof_usize == 0);
-        println!("ScenarioPlan<2>: {} - {}", size_of::<ScenarioPlan<2>>(), size_of::<ScenarioPlan<2>>() % sizeof_usize == 0);
-        println!("ScenarioSurface<0>: {} - {}", size_of::<ScenarioSurface<0>>(), size_of::<ScenarioSurface<0>>() % sizeof_usize == 0);
-        println!("ScenarioSurface<1>: {} - {}", size_of::<ScenarioSurface<1>>(), size_of::<ScenarioSurface<1>>() % sizeof_usize == 0);
-        println!("ScenarioSurface<2>: {} - {}", size_of::<ScenarioSurface<2>>(), size_of::<ScenarioSurface<2>>() % sizeof_usize == 0);
-        
+        println!(
+            "DataPointKey: {} - {}",
+            size_of::<DataPointKey>(),
+            size_of::<DataPointKey>() % sizeof_usize == 0
+        );
+        println!(
+            "Bump: {} - {}",
+            size_of::<Bump>(),
+            size_of::<Bump>() % sizeof_usize == 0
+        );
+        println!(
+            "ScenarioId: {} - {}",
+            size_of::<ScenarioId>(),
+            size_of::<ScenarioId>() % sizeof_usize == 0
+        );
+        println!(
+            "Scenario<0>: {} - {}",
+            size_of::<Scenario<0>>(),
+            size_of::<Scenario<0>>() % sizeof_usize == 0
+        );
+        println!(
+            "Scenario<1>: {} - {}",
+            size_of::<Scenario<1>>(),
+            size_of::<Scenario<1>>() % sizeof_usize == 0
+        );
+        println!(
+            "Scenario<2>: {} - {}",
+            size_of::<Scenario<2>>(),
+            size_of::<Scenario<2>>() % sizeof_usize == 0
+        );
+        println!(
+            "ScenarioPlan<0>: {} - {}",
+            size_of::<ScenarioPlan<0>>(),
+            size_of::<ScenarioPlan<0>>() % sizeof_usize == 0
+        );
+        println!(
+            "ScenarioPlan<1>: {} - {}",
+            size_of::<ScenarioPlan<1>>(),
+            size_of::<ScenarioPlan<1>>() % sizeof_usize == 0
+        );
+        println!(
+            "ScenarioPlan<2>: {} - {}",
+            size_of::<ScenarioPlan<2>>(),
+            size_of::<ScenarioPlan<2>>() % sizeof_usize == 0
+        );
+        println!(
+            "ScenarioSurface<0>: {} - {}",
+            size_of::<ScenarioSurface<0>>(),
+            size_of::<ScenarioSurface<0>>() % sizeof_usize == 0
+        );
+        println!(
+            "ScenarioSurface<1>: {} - {}",
+            size_of::<ScenarioSurface<1>>(),
+            size_of::<ScenarioSurface<1>>() % sizeof_usize == 0
+        );
+        println!(
+            "ScenarioSurface<2>: {} - {}",
+            size_of::<ScenarioSurface<2>>(),
+            size_of::<ScenarioSurface<2>>() % sizeof_usize == 0
+        );
     }
 
     #[test]
