@@ -25,6 +25,9 @@ use rayon::{prelude::*, ThreadPool};
 use std::sync::Arc;
 use std::thread;
 
+use black_scholes_pricer::bs_single::*;
+use bytemuck::cast;
+
 #[derive(new, Copy, Clone, Debug, Display, Serialize, Deserialize)]
 #[display(
     fmt = "(spot: {}, strike: {}, ir: {}, mat: {}, vol: {})",
@@ -45,10 +48,10 @@ pub struct CalcParams {
 #[derive(
     new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize,
 )]
-struct ScenarioId(u16);
+pub struct ScenarioId(u16);
 
 #[derive(Clone, Debug, new)]
-struct Scenario<const LENGTH: usize> {
+pub struct Scenario<const LENGTH: usize> {
     scenario_id: ScenarioId,
     calc_params: [CalcParams; LENGTH],
 }
@@ -59,21 +62,29 @@ struct Scenario<const LENGTH: usize> {
 //     }
 // }
 
-#[derive(new, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize)]
-struct BucketIdL<const BUCKET_KEY_LENGTH: usize>(ArrayString<BUCKET_KEY_LENGTH>);
+#[derive(
+    Clone, Copy, Debug, Display, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize,
+)]
+pub struct BucketIdL<const BUCKET_KEY_LENGTH: usize>(ArrayString<BUCKET_KEY_LENGTH>);
+
+impl<const BUCKET_KEY_LENGTH: usize> BucketIdL<BUCKET_KEY_LENGTH> {
+    pub fn new(bucket: &str) -> Self {
+        Self(ArrayString::<BUCKET_KEY_LENGTH>::from(bucket).expect(&format!("Incorrect BucketId length: {}", bucket.len())))
+    }
+}
 
 #[derive(
-    new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize,
+    new, Clone, Copy, Debug, Display, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize,
 )]
-struct InstrumentId(u16);
+pub struct InstrumentId(u16);
 
 #[derive(
-    new, Display, Clone, Copy, Debug, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize,
+    new, Clone, Copy, Debug, Display, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize,
 )]
-struct Day(u16);
+pub struct Day(u16);
 
 #[derive(new, Copy, Clone, Debug, Display, Serialize, Deserialize)]
-enum Bump {
+pub enum Bump {
     Benchmark,
     AddBumpIdx(f32),
     MulBumpIdx(f32),
@@ -119,7 +130,7 @@ impl Ord for Bump {
 }
 
 #[derive(new, Hash, Copy, Clone, Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
-struct DataPointKeyL<const BUCKET_KEY_LENGTH: usize> {
+pub struct DataPointKeyL<const BUCKET_KEY_LENGTH: usize> {
     bucket: BucketIdL<BUCKET_KEY_LENGTH>,
     instrument: InstrumentId,
     day: Day,
@@ -128,7 +139,7 @@ struct DataPointKeyL<const BUCKET_KEY_LENGTH: usize> {
 }
 
 #[derive(new, Clone, Debug)]
-struct ScenarioPlan<const LENGTH: usize> {
+pub struct ScenarioPlan<const LENGTH: usize> {
     instruments: Vec<InstrumentId>,
     days: Vec<Day>,
     scenario: Scenario<LENGTH>,
@@ -152,9 +163,61 @@ impl<const LENGTH: usize> ScenarioPlan<LENGTH> {
 }
 
 #[derive(new, Clone, Debug)]
-struct ScenarioSurfaceL<const LENGTH: usize, const BUCKET_KEY_LENGTH: usize> {
+pub struct ScenarioSurfaceL<const LENGTH: usize, const BUCKET_KEY_LENGTH: usize> {
     plan: ScenarioPlan<LENGTH>,
     surface: BTreeMap<DataPointKeyL<BUCKET_KEY_LENGTH>, Vec<f32>>,
+}
+
+impl<const LENGTH: usize, const BUCKET_KEY_LENGTH: usize>
+    ScenarioSurfaceL<LENGTH, BUCKET_KEY_LENGTH>
+{
+    fn build_surface(plan: ScenarioPlan<LENGTH>) -> Self {
+        let days = &plan.days;
+        let instruments = &plan.instruments;
+        let sid = plan.scenario.scenario_id;
+        let surface = plan
+            .scenario
+            .calc_params
+            .iter()
+            .flat_map(move |p| {
+                let pd = days;
+                let sid = sid;
+                instruments
+                    .iter()
+                    .flat_map(move |i| {
+                        let i1 = i.clone();
+                        pd.iter().map(move |d| {
+                            let i2 = i1;
+                            (i2, d.clone())
+                        })
+                    })
+                    .map(move |(i, d)| {
+                        (
+                            DataPointKeyL::<BUCKET_KEY_LENGTH>::new(
+                                BucketIdL::<BUCKET_KEY_LENGTH>::new("AAAA"),
+                                i,
+                                d,
+                                sid.clone(),
+                                Bump::Benchmark,
+                            ),
+                            vec![bs_price(
+                                OptionDir::CALL,
+                                p.spot,
+                                p.strike,
+                                p.volatility,
+                                p.ir,
+                                0.01,
+                                p.maturity,
+                            )],
+                        )
+                    })
+            })
+            .collect::<BTreeMap<DataPointKeyL<BUCKET_KEY_LENGTH>, _>>();
+        Self {
+            plan,
+            surface,
+        }
+    }
 }
 
 const BUCKET_KEY_LENGTH: usize = 4;
@@ -173,17 +236,21 @@ pub fn generate_linear_vector(initial_value: f32, bump: f32, count: u16) -> Vec<
         .collect::<Vec<_>>()
 }
 
+type FStep = dyn Fn(u32) -> f32;
+
 pub fn generate_calc_params<const LENGTH: usize>(
     // count: usize,
-    spot: &dyn Fn(u32) -> f32,
-    strike: &dyn Fn(u32) -> f32,
-    ir: &dyn Fn(u32) -> f32,
-    maturity: &dyn Fn(u32) -> f32,
-    volatility: &dyn Fn(u32) -> f32,
-) -> ArrayVec<CalcParams, LENGTH> {
+    spot: &FStep,
+    strike: &FStep,
+    ir: &FStep,
+    maturity: &FStep,
+    volatility: &FStep,
+) -> [CalcParams; LENGTH] {
     (0u32..LENGTH as u32)
         .map(|i| CalcParams::new(spot(i), strike(i), ir(i), maturity(i), volatility(i)))
         .collect::<ArrayVec<_, LENGTH>>()
+        .into_inner()
+        .expect("Wrong CalcParams array length requested")
 }
 
 ///////////////////////
@@ -417,7 +484,11 @@ mod tests {
         let f = |i| (i as f32) * 0.1;
         let params = generate_calc_params::<16>(&f, &f, &f, &f, &f);
 
-        println!("{:?}", params);
+        let sp = ScenarioPlan::span_across(ScenarioId(1), params, 5, 5);
+
+        let surface = ScenarioSurface::build_surface(sp);
+
+        println!("{:?}", surface);
     }
 
     #[test]
@@ -677,6 +748,7 @@ fn main() {
 
 extern crate timely;
 
+use black_scholes_pricer::OptionDir;
 #[allow(unused_imports)]
 use std::cell::RefCell;
 use std::cmp::Ordering;
